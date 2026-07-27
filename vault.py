@@ -8,4 +8,7 @@ if __name__ == "__main__":
     view = VaultTmnlView()
     cont = VaultController(model, view)
     
-    cont.init_run()
+    if not cont.has_first_init:
+        cont.init_run()
+    else:
+        cont.run()

@@ -113,6 +113,8 @@ class VaultTmnlView:
                        C: Show Category Totals
                        F: Filter Transactions by Account
                        G: Filter Transactions by Category
+                       H: Add Accounts
+                       I: Add Categories
                        Q: Quit
                        """)
         
