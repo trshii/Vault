@@ -51,6 +51,9 @@ class VaultController:
             with open(self.CONFIG_PATH, "r", encoding="utf-8") as f:
                 return json.load(f)
             
+    def set_keyword_rule(self) -> None:
+        ...
+            
     def write_app_state(self, data: Dict[str, Any]) -> None:
         """Writes a Python dictionary to the config JSON file safely."""
         self.CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
