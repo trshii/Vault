@@ -23,7 +23,8 @@ class VaultTmnlView:
         
     def get_user_list(self) -> str:
         self.clear()
-        print("Please input list (press ENTER on blank line to finish.): ")
+        print("Please input list (press ENTER on blank line to finish.) ")
+        print("FORMAT: 'M/D - (-/+) description @account, (-/+) description @account'")
         lines = []
         
         while True:
