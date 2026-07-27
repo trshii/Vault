@@ -3,9 +3,9 @@ from db_model import FinanceModel
 from vault_view_tmnl import VaultTmnlView
 
 if __name__ == "__main__":
-    db_name = "finance.db"
-    model = FinanceModel(db_name)
     view = VaultTmnlView()
+    db_name = view.get_db_file_name()
+    model = FinanceModel(db_name)
     cont = VaultController(model, view)
     
     if not cont.has_first_init:

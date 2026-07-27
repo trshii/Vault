@@ -20,6 +20,13 @@ class VaultTmnlView:
         else:
             # macOS/Linux can call 'clear' directly as an executable list
             subprocess.run(["clear"])
+            
+    def get_db_file_name(self) -> str:
+        self.clear()
+        print("Please input .db file name: ")
+        file_name = input()
+        
+        return file_name + ".db"
         
     def get_user_list(self) -> str:
         self.clear()
