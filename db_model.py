@@ -352,6 +352,7 @@ class FinanceModel:
                 ORDER BY {self._CHRONOLOGICAL_ORDER};
             """, (category_name,))
             return [dict(row) for row in cursor.fetchall()]
+  
         
 if __name__ == "__main__":
     print("--- 1. INITIALIZING DATABASE & SEEDING RULES ---")

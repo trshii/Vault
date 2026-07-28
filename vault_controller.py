@@ -173,24 +173,24 @@ class VaultController:
         while True:
             input_cmd = self._view.get_optional_input().strip().lower()
             match input_cmd:
-                case "d":
+                case "1":
                     results = self._db_model.get_all_transactions_view()
                     self._view.display_dashboard(results)
-                case "a":
+                case "2":
                     self.get_new_transaction(default_account=default_account)
-                case "b":
+                case "3":
                     self.show_account_balances()
-                case "c":
+                case "4":
                     self.show_category_totals()
-                case "f":
+                case "5":
                     self.filter_by_account()
-                case "g":
+                case "w":
                     self.filter_by_category()
-                case "h":
+                case "e":
                     self.get_user_acc()
-                case "i":
+                case "r":
                     self.get_user_cat()
-                case "k":
+                case "t":
                     self.set_keyword_rule()
                 case "q":
                     break

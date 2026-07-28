@@ -72,7 +72,7 @@ class VaultTmnlView:
     
     def get_user_categories(self) -> Dict[str, List[str]]:
         self.clear()
-        user_categories = {"Expenses": [], "Income": []}
+        user_categories = {"Expense": [], "Income": []}
         expenses = []
         income = []
         
@@ -94,7 +94,7 @@ class VaultTmnlView:
             
             income.append(line)
             
-        user_categories['Expenses'] = expenses
+        user_categories['Expense'] = expenses
         user_categories['Income'] = income
         
         return user_categories
@@ -147,15 +147,15 @@ class VaultTmnlView:
     def get_optional_input(self) -> str:
         option = input("""
 Commands:
-D: Display Dashboard
-A: Add Transaction List
-B: Show Account Balances
-C: Show Category Totals
-F: Filter Transactions by Account
-G: Filter Transactions by Category
-H: Add Accounts
-I: Add Categories
-K: Set Keyword Rule
+1: Display Dashboard
+2: Add Transaction List
+3: Show Account Balances
+4: Show Category Totals
+5: Filter Transactions by Account
+W: Filter Transactions by Category
+E: Add Accounts
+R: Add Categories
+T: Set Keyword Rule
 Q: Quit
 - """)
         
