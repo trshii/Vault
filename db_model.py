@@ -41,7 +41,7 @@ class FinanceModel:
         t.id ASC
     """
 
-    def __init__(self, db_path: str = "finance.db"):
+    def __init__(self, db_path: Path):
         """Initializes the connection and ensures tables exist."""
         self.db_path = db_path
         self._category_engine = CategorizationEngine(db_path)
