@@ -52,7 +52,23 @@ class VaultController:
                 return json.load(f)
             
     def set_keyword_rule(self) -> None:
-        ...
+        """
+        Prompts for a keyword and the category it should map to, resolves
+        that category case-insensitively (creating it as `cat_type` only if
+        it doesn't already exist - see FinanceModel.get_category_id), and
+        saves the rule. If the user opts in, existing transactions that
+        already match the keyword and share the category's sign are
+        reclassified too (see FinanceModel.add_keyword_rule).
+        """
+        keyword, category_name, cat_type, apply_retroactively = self._view.prompt_keyword_rule()
+
+        if not keyword or not category_name:
+            print("Keyword and category are both required - nothing was saved.\n")
+            return
+
+        category_id = self._db_model.get_category_id(category_name, default_type=cat_type)
+        self._db_model.add_keyword_rule(keyword, category_id, apply_retroactively=apply_retroactively)
+        print(f"Keyword rule saved: '{keyword}' -> '{category_name}'.\n")
             
     def write_app_state(self, data: Dict[str, Any]) -> None:
         """Writes a Python dictionary to the config JSON file safely."""
@@ -65,12 +81,26 @@ class VaultController:
     
     def process_data(self, item: Dict[str, Any], default_account: Optional[str] = None) -> None:
         """
-        Resolves the account for a single parsed item and saves it as a
-        transaction. Each item can carry its own account name, tagged
-        inline in the notes as "@account" and picked up by text_parser.
-        If an item has no tag, default_account is used instead. Raises if
-        neither is available, since every transaction needs an account_id
-        to satisfy the accounts foreign key.
+        Resolves the account and category for a single parsed item and
+        saves it as a transaction.
+
+        Account: each item can carry its own account name, tagged inline in
+        the notes as "@account" and picked up by text_parser. If an item has
+        no tag, default_account is used instead. Raises if neither is
+        available, since every transaction needs an account_id to satisfy
+        the accounts foreign key.
+
+        Category: if the item carries an inline "#category" tag, that
+        category is resolved case-insensitively (created fresh - with its
+        Income/Expense type inferred from this transaction's sign - if it
+        doesn't exist yet), and is also saved as a keyword rule keyed on
+        this transaction's own description. That means tagging one line
+        also retroactively re-categorizes every other transaction already
+        in the db with a matching description/sign, and future ones too via
+        CategorizationEngine's Tier 1 - handy for auto-categorizing a whole
+        first-time list without pre-declaring categories or writing keyword
+        rules by hand. Items with no "#category" tag fall back to the
+        normal keyword/history/uncategorized lookup, unchanged.
         """
         account_name = item.get("account") or default_account
         if account_name is None:
@@ -80,8 +110,15 @@ class VaultController:
             )
 
         acc_id = self._db_model.get_account_id(account_name)
-        cat_id = self._db_model.get_category_for_description(item["description"], item["amount"])
-                
+
+        category_tag = item.get("category")
+        if category_tag:
+            inferred_type = "Income" if item["amount"] > 0 else "Expense"
+            cat_id = self._db_model.get_category_id(category_tag, default_type=inferred_type)
+            self._db_model.add_keyword_rule(item["description"], cat_id, apply_retroactively=True)
+        else:
+            cat_id = self._db_model.get_category_for_description(item["description"], item["amount"])
+
         # Save to database
         self._db_model.add_transaction(
             date=item["date"],
@@ -110,9 +147,23 @@ class VaultController:
         self._view.display_dashboard(results)
 
     def init_run(self, default_account: Optional[str] = None) -> None:
+        """
+        First-time setup. Asks for the transaction list up front instead of
+        making the user separately enumerate accounts and categories first:
+        - accounts referenced via "@account" tags are created automatically
+          (FinanceModel.get_account_id already does this on the fly).
+        - categories referenced via "#category" tags are created and
+          auto-applied too, including retroactively across the rest of this
+          same list (see process_data).
+        Only after that do we ask for any additional accounts that didn't
+        happen to show up in the list yet (e.g. a savings account with no
+        transactions so far). Categories aren't prompted for here anymore -
+        `get_user_cat` (menu option "I") is still available any time for
+        pre-declaring categories that aren't tagged inline.
+        """
         self._view.clear()
-        self.init_acc_cat_setup()
         self.get_new_transaction(default_account=default_account)
+        self.get_user_acc()
         config = {"has_first_init": True}
         self.write_app_state(config)
         self.run(default_account=default_account)
@@ -139,6 +190,8 @@ class VaultController:
                     self.get_user_acc()
                 case "i":
                     self.get_user_cat()
+                case "k":
+                    self.set_keyword_rule()
                 case "q":
                     break
                 case _:

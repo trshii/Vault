@@ -13,6 +13,11 @@ class VaultTmnlView:
             print(f"{row['date']:<6} | {row['amount']:<10.2f} | {row['type']:<8} | {row['category']:<22} | {row['description']}")
         print()
         
+    def display_header(self) -> None:
+        print("---------- Vault ----------")
+        print()
+        print()
+        
     def clear(self) -> None:
         if os.name == "nt":
         # Windows requires shell=True to run internal commands like 'cls'
@@ -20,6 +25,8 @@ class VaultTmnlView:
         else:
             # macOS/Linux can call 'clear' directly as an executable list
             subprocess.run(["clear"])
+            
+        self.display_header()
             
     def get_db_file_name(self) -> str:
         self.clear()
@@ -31,7 +38,11 @@ class VaultTmnlView:
     def get_user_list(self) -> str:
         self.clear()
         print("Please input list (press ENTER on blank line to finish.) ")
-        print("FORMAT: 'M/D - (-/+) description @account, (-/+) description @account'")
+        print("FORMAT: 'Month/Day - (-/+) description @account #category, (-/+) description @account #category'")
+        print("(@account and #category are both optional, and can appear in either order.")
+        print(" Accounts are created automatically if new. A #category tag also saves a")
+        print(" keyword rule from the description, so matching transactions - past and")
+        print(" future - get auto-categorized too.)")
         lines = []
         
         while True:
@@ -112,18 +123,40 @@ class VaultTmnlView:
         self.clear()
         return input("Enter category name to filter by: ").strip()
 
+    def prompt_keyword_rule(self) -> Tuple[str, str, str, bool]:
+        """
+        Collects everything needed to set a keyword rule: the keyword itself,
+        the category it should route to, a fallback type to use ONLY if that
+        category doesn't exist yet (get_category_id needs one to create it),
+        and whether to reclassify existing matching transactions.
+        """
+        self.clear()
+        print("Set a keyword rule (auto-categorizes transactions containing this keyword).")
+        keyword = input("Keyword to match: ").strip()
+        category_name = input("Category to assign it to: ").strip()
+
+        cat_type = input("If that category is new, is it Income or Expense? [Expense]: ").strip().capitalize()
+        if cat_type not in ("Income", "Expense"):
+            cat_type = "Expense"
+
+        retro_raw = input("Apply retroactively to existing matching transactions? (y/n): ").strip().lower()
+        apply_retroactively = retro_raw.startswith("y")
+
+        return keyword, category_name, cat_type, apply_retroactively
+
     def get_optional_input(self) -> str:
         option = input("""
-                       Commands:
-                       D: Display Dashboard
-                       A: Add Transaction List
-                       B: Show Account Balances
-                       C: Show Category Totals
-                       F: Filter Transactions by Account
-                       G: Filter Transactions by Category
-                       H: Add Accounts
-                       I: Add Categories
-                       Q: Quit
-                       """)
+Commands:
+D: Display Dashboard
+A: Add Transaction List
+B: Show Account Balances
+C: Show Category Totals
+F: Filter Transactions by Account
+G: Filter Transactions by Category
+H: Add Accounts
+I: Add Categories
+K: Set Keyword Rule
+Q: Quit
+- """)
         
         return option

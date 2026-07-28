@@ -2,6 +2,7 @@ import sqlite3
 from typing import List, Dict, Any, Optional
 from text_parser import parse_financial_notes
 from category_engine import CategorizationEngine
+from pathlib import Path
 
 class FinanceModel:
     """
@@ -60,10 +61,15 @@ class FinanceModel:
             cursor = conn.cursor()
             
             # 1. Categories Table
+            # name uses COLLATE NOCASE so "Needs" and "needs" are the same
+            # category everywhere: the UNIQUE constraint rejects case-only
+            # duplicates on insert, and every `WHERE name = ?` lookup below
+            # matches regardless of case, instead of silently creating a
+            # second category that splits totals/keyword rules across two ids.
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS categories (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT UNIQUE NOT NULL,
+                    name TEXT UNIQUE NOT NULL COLLATE NOCASE,
                     type TEXT NOT NULL CHECK(type IN ('Income', 'Expense'))
                 );
             """)
@@ -223,7 +229,7 @@ class FinanceModel:
         with self._get_connection() as conn:
             clean_name = name.strip()
             cursor = conn.cursor()
-            cursor.execute("SELECT id FROM categories WHERE name = ? LIMIT 1;", (clean_name,))
+            cursor.execute("SELECT id FROM categories WHERE name = ? COLLATE NOCASE LIMIT 1;", (clean_name,))
             row = cursor.fetchone()
             
             if row:
@@ -342,7 +348,7 @@ class FinanceModel:
                 FROM transactions t
                 JOIN categories c ON t.category_id = c.id
                 JOIN accounts a ON t.account_id = a.id
-                WHERE c.name = ?
+                WHERE c.name = ? COLLATE NOCASE
                 ORDER BY {self._CHRONOLOGICAL_ORDER};
             """, (category_name,))
             return [dict(row) for row in cursor.fetchall()]
