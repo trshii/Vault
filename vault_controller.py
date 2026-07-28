@@ -167,6 +167,24 @@ class VaultController:
             account_id=acc_id
         )
         
+    def switch_database(self, default_account: Optional[str] = None) -> None:
+        """
+        Prompts for a new .db filename, updates the underlying model,
+        and handles first-time setup if the database hasn't been initialized yet.
+        """
+        
+        db_name = self._view.get_db_file_name()
+        new_db_path = self.ROOT / "data" / db_name
+        
+        # initialize new model, change _db_model instance to new
+        self._db_model = FinanceModel(new_db_path)
+        self._db_model.init_db()
+        
+        print(f"\nSwitched active database to: {db_name}\n")
+        
+        if not self.is_current_db_initialized:
+            print(f"'{db_name}' has not been initialized yet. Starting initial setup...\n")
+            self.init_run(default_account=default_account)
         
     # DISPLAYS
     
@@ -238,6 +256,8 @@ class VaultController:
                     self.get_user_cat()
                 case "t":
                     self.set_keyword_rule()
+                case "a":
+                    self.switch_database()
                 case "q":
                     break
                 case _:

@@ -156,6 +156,7 @@ W: Filter Transactions by Category
 E: Add Accounts
 R: Add Categories
 T: Set Keyword Rule
+A: Change .db File
 Q: Quit
 - """)
         
