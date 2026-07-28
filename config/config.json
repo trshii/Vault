@@ -1,3 +1,5 @@
 {
-    "has_first_init": true
+    "initialized_databases": {
+        "finance.db": true
+    }
 }

@@ -14,11 +14,62 @@ class VaultController:
         self.CONFIG_PATH = self.ROOT / "config" / "config.json"
         self._db_model.init_db()
         
+        
+    # CONFIG METHODS #
+        
+        
     @property
     def has_first_init(self) -> bool:
         app_state = self.get_app_state()
         return app_state['has_first_init']
     
+    @property
+    def is_current_db_initialized(self) -> bool:
+        """
+        Checks if the currently attached database file has already been initialized.
+        """
+        app_state = self.get_app_state()
+        initialized_dbs: Dict[str, bool] = app_state.get("initialized_databases", {})
+        
+        db_key = self._db_model.db_path.name
+        return initialized_dbs.get(db_key, False)
+        
+    def mark_current_db_initialized(self) -> None:
+        """
+        Updates config.json, marking the current database file as initialized
+        while preserving initialization records for all other database files.
+        """
+        app_state = self.get_app_state()
+        
+        # Guarantee 'initialized_databases' dict exists
+        if "initialized_databases" not in app_state:
+            app_state["initialized_databases"] = {}
+
+        db_key = self._db_model.db_path.name
+        app_state["initialized_databases"][db_key] = True
+
+        self.write_app_state(app_state)
+        
+    def get_app_state(self) -> dict[str, Any]:
+        if not self.CONFIG_PATH.exists():
+            return {}
+        try:
+            with open(self.CONFIG_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            return {}
+        
+    def write_app_state(self, data: Dict[str, Any]) -> None:
+        """Writes a Python dictionary to the config JSON file safely."""
+        self.CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.CONFIG_PATH, "w", encoding="utf-8") as f:
+
+            json.dump(data, f, indent=4)
+    
+    
+    # GETTERS #
+    
+        
     def get_user_acc(self) -> None:
         accounts: List[str] = self._view.get_user_accounts()
         for account in accounts:
@@ -29,11 +80,7 @@ class VaultController:
         for cat_type, category_list in categories.items():
             for category in category_list:
                 self._db_model.add_category(category, cat_type)
-    
-    def init_acc_cat_setup(self) -> None:
-        self.get_user_acc()
-        self.get_user_cat()
-                
+        
     def get_input_and_parse(self) -> List[Dict[str, Any]]:
         user_list = self._view.get_user_list()
         user_list_parsed: List[Dict[str, Any]] = parse_financial_notes(user_list)
@@ -44,13 +91,10 @@ class VaultController:
         for item in parsed_data:
             self.process_data(item, default_account=default_account)
             
-    def get_app_state(self) -> dict[str, Any]:
-        if not self.CONFIG_PATH.exists():
-            return {}
-        else:
-            with open(self.CONFIG_PATH, "r", encoding="utf-8") as f:
-                return json.load(f)
             
+    # SETTERS
+    
+    
     def set_keyword_rule(self) -> None:
         """
         Prompts for a keyword and the category it should map to, resolves
@@ -69,15 +113,10 @@ class VaultController:
         category_id = self._db_model.get_category_id(category_name, default_type=cat_type)
         self._db_model.add_keyword_rule(keyword, category_id, apply_retroactively=apply_retroactively)
         print(f"Keyword rule saved: '{keyword}' -> '{category_name}'.\n")
-            
-    def write_app_state(self, data: Dict[str, Any]) -> None:
-        """Writes a Python dictionary to the config JSON file safely."""
-        self.CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.CONFIG_PATH, "w", encoding="utf-8") as f:
-            
-            # Step 3: Dump the dictionary to the file with clean indentation
-            json.dump(data, f, indent=4)
-                
+        
+        
+    # PROCESSORS
+    
     
     def process_data(self, item: Dict[str, Any], default_account: Optional[str] = None) -> None:
         """
@@ -127,6 +166,10 @@ class VaultController:
             category_id=cat_id,
             account_id=acc_id
         )
+        
+        
+    # DISPLAYS
+    
     
     def show_account_balances(self) -> None:
         balances = self._db_model.get_account_balances()
@@ -145,7 +188,11 @@ class VaultController:
         category_name = self._view.prompt_category_filter()
         results = self._db_model.get_transactions_by_category(category_name)
         self._view.display_dashboard(results)
-
+        
+        
+    # MAIN ENGINE
+    
+    
     def init_run(self, default_account: Optional[str] = None) -> None:
         """
         First-time setup. Asks for the transaction list up front instead of
@@ -164,8 +211,7 @@ class VaultController:
         self._view.clear()
         self.get_new_transaction(default_account=default_account)
         self.get_user_acc()
-        config = {"has_first_init": True}
-        self.write_app_state(config)
+        self.mark_current_db_initialized()
         self.run(default_account=default_account)
                     
     def run(self, default_account: Optional[str] = None) -> None:
@@ -196,6 +242,3 @@ class VaultController:
                     break
                 case _:
                     print(f"Unrecognized command: {input_cmd!r}\n")
-        
-            
-    

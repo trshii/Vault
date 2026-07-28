@@ -11,7 +11,7 @@ if __name__ == "__main__":
     model = FinanceModel(db_path)
     cont = VaultController(model, view)
     
-    if not cont.has_first_init:
+    if not cont.is_current_db_initialized:
         cont.init_run()
     else:
         cont.run()
