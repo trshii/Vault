@@ -1,79 +1,160 @@
+"""
+text_parser.py
+---------------
+Strict, single-transaction-per-line parser for the shorthand format:
+
+    <date> <sign> <amount> <description> [@account] [#category]
+
+Example:
+    8/4 - 150 gas for giorno+ @wallet #transport
+    8/4 + 25000 freelance payout @wallet #salary
+
+The parser is the ultimate gatekeeper for data integrity:
+
+  * @account is REQUIRED. A line with no account tag raises ParserError
+    rather than being guessed at — money has to go *somewhere*
+    identifiable, and there's no reasonable default account to fall
+    back to.
+  * #category is OPTIONAL. A line with no category tag still parses
+    successfully; `category` comes back as None and it's the
+    Controller's job to route it into the appropriate "Uncategorized"
+    bucket (see vault_controller.py).
+
+Parsing one line never blows up the whole batch — parse_batch() catches
+ParserError per-line and keeps going.
+"""
+
 import re
-from typing import Any, List, Dict, Optional
+from dataclasses import dataclass
+from typing import List, Optional, Tuple
 
-def parse_financial_notes(raw_text: str) -> List[Dict[str, Any]]:
-    parsed_data: List[Dict[str, Any]] = []
 
-    # Regex breakdown:
-    # ^([+-]?\s*\d+(?:\.\d+)?) -> Captures sign, optional space, digits, optional decimals (the amount)
-    # \s+                      -> Expects at least one space between amount and everything else
-    # (.+)$                    -> Captures the remainder of the transaction chunk: the description
-    #                             plus any trailing @account / #category tags, which get peeled
-    #                             off separately below.
-    amount_pattern = re.compile(r'^([+-]?\s*\d+(?:\.\d+)?)\s+(.+)$')
+class ParserError(ValueError):
+    """Raised when a single line can't be turned into a valid transaction."""
 
-    # Matches ONE trailing tag - either "@account" or "#category" - anchored to
-    # the end of whatever string it's run against via `$`. Tags are single
-    # words (no spaces), same convention as the original @account tag, so a
-    # tag never eats into the description. Re-running this against the
-    # shrinking remainder (see the loop below) lets @account and #category
-    # show up in either order, since each pass just strips whichever tag is
-    # currently last.
-    trailing_tag_pattern = re.compile(r'\s*([@#])(\S+)$')
+    def __init__(self, line: str, reason: str):
+        self.line = line
+        self.reason = reason
+        super().__init__(f"{reason} | line: {line!r}")
 
-    lines = raw_text.strip().split('\n')
 
-    for line in lines:
+@dataclass
+class ParsedTransaction:
+    date: str
+    amount: float                  # already signed: negative for outflow
+    description: str
+    account: str                   # always present (parser enforces this)
+    category: Optional[str]        # None => caller must use an Uncategorized bucket
+    raw_line: str
+
+
+# ---------------------------------------------------------------------------
+# Regex breakdown
+# ---------------------------------------------------------------------------
+# ^(?P<date>\S+)             -> date token, e.g. "8/4" (no internal spaces)
+# \s+(?P<sign>[+-])\s*       -> the sign. Space BEFORE it is required (it's
+#                               what separates it from the date); space
+#                               AFTER it is optional, so both "- 150" and
+#                               "-150" parse the same way.
+# (?P<amount>\d+(?:\.\d+)?)  -> the unsigned numeric amount
+# \s+(?P<rest>.+)$           -> everything else: description + any trailing
+#                               @account / #category tags, peeled off below.
+LINE_PATTERN = re.compile(
+    r'^(?P<date>\S+)\s+(?P<sign>[+-])\s*(?P<amount>\d+(?:\.\d+)?)\s+(?P<rest>.+)$'
+)
+
+# Matches ONE trailing tag ("@word" or "#word") anchored to the end of the
+# string via `$`. Run in a loop (see below) so @account and #category can
+# appear in either order — each pass just strips whichever tag is last.
+TRAILING_TAG_PATTERN = re.compile(r'\s*([@#])(\S+)$')
+
+
+def parse_transaction_line(line: str) -> ParsedTransaction:
+    """
+    Parses a single line into a ParsedTransaction.
+
+    Raises ParserError if:
+      - the line doesn't match the '<date> <sign> <amount> <description>' shape
+      - the description ends up empty after tags are peeled off
+      - no @account tag is present
+    """
+    raw_line = line
+    line = line.strip()
+
+    if not line:
+        raise ParserError(raw_line, "Empty line")
+
+    match = LINE_PATTERN.match(line)
+    if not match:
+        raise ParserError(
+            raw_line,
+            "Doesn't match '<date> <sign> <amount> <description...>' format",
+        )
+
+    date = match.group("date").strip()
+    sign = match.group("sign")
+    amount = float(match.group("amount"))
+    if sign == "-":
+        amount = -amount
+
+    remainder = match.group("rest").strip()
+
+    # Peel off up to two trailing tags (one @account, one #category, in
+    # either order). Whatever's left after that is the description.
+    account: Optional[str] = None
+    category: Optional[str] = None
+
+    for _ in range(2):
+        tag_match = TRAILING_TAG_PATTERN.search(remainder)
+        if not tag_match:
+            break
+        marker, value = tag_match.group(1), tag_match.group(2)
+        remainder = remainder[: tag_match.start()].strip()
+        if marker == "@" and account is None:
+            account = value
+        elif marker == "#" and category is None:
+            category = value
+
+    description = remainder
+    if not description:
+        raise ParserError(raw_line, "Missing description")
+
+    # --- Strict gate: @account is mandatory, no silent fallback ---
+    if account is None:
+        raise ParserError(
+            raw_line,
+            "Missing required @account tag — every transaction must name an account",
+        )
+
+    return ParsedTransaction(
+        date=date,
+        amount=amount,
+        description=description,
+        account=account,
+        category=category,  # legitimately None if untagged
+        raw_line=raw_line,
+    )
+
+
+def parse_batch(raw_text: str) -> Tuple[List[ParsedTransaction], List[ParserError]]:
+    """
+    Parses a multi-line payload, one transaction per line. Each line is
+    parsed independently — a malformed or under-tagged line is collected
+    as an error and does NOT stop the rest of the batch from processing.
+
+    Returns (successfully_parsed, errors), in original line order within
+    each list.
+    """
+    successes: List[ParsedTransaction] = []
+    errors: List[ParserError] = []
+
+    for line in raw_text.strip().split("\n"):
         line = line.strip()
         if not line:
             continue
+        try:
+            successes.append(parse_transaction_line(line))
+        except ParserError as e:
+            errors.append(e)
 
-        # 1. Separate Date from Transactions
-        if ' - ' not in line:
-            continue
-
-        date_part, transactions_part = line.split(' - ', 1)
-        date = date_part.strip()
-
-        # 2. Handle multiple transactions on one line
-        transactions = transactions_part.split(',')
-
-        for trans in transactions:
-            trans = trans.strip()
-            match = amount_pattern.match(trans)
-
-            if not match:
-                continue
-
-            # 3. Clean and convert the extracted amount
-            raw_amount = match.group(1).replace(' ', '')  # Turns "- 20" into "-20"
-            amount = float(raw_amount)
-            remainder = match.group(2).strip()
-
-            # 4. Peel off up to two trailing tags (one @account, one #category,
-            #    in either order). Whatever's left after that is the description.
-            account: Optional[str] = None
-            category: Optional[str] = None
-
-            for _ in range(2):
-                tag_match = trailing_tag_pattern.search(remainder)
-                if not tag_match:
-                    break
-                marker, value = tag_match.group(1), tag_match.group(2)
-                remainder = remainder[:tag_match.start()].strip()
-                if marker == '@' and account is None:
-                    account = value
-                elif marker == '#' and category is None:
-                    category = value
-
-            description = remainder
-
-            parsed_data.append({
-                "date": date,
-                "amount": amount,
-                "description": description,
-                "account": account,      # None if no "@account" tag was given
-                "category": category,    # None if no "#category" tag was given
-            })
-
-    return parsed_data
+    return successes, errors
