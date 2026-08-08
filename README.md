@@ -64,6 +64,7 @@ If you prefer to organize your files differently (e.g., moving the dashboard to 
 
 While Vault reads all files for transaction notes, it's highly recommended to stick to an organized file organization system! Below is a recommended hierarchy (though of course, this is just a suggestion!):
 
+```text
 Finances/
 ├── 2025-11/
 │   ├── 2025-11-01.md
@@ -77,6 +78,7 @@ Finances/
     ├── 2026-01-01.md
     ├── 2026-01-15.md
     └── 2026-01-20.md
+```
 
 This can be easily integrated into the Daily Notes Core Plugin by doing the following:
 
