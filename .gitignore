@@ -1,5 +1,6 @@
 *.pyc
 /build
 /dist
-.spec
+Vault.spec
 /__pycache__
+/temp
