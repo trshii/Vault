@@ -1,18 +1,5 @@
-"""
-db_model.py
------------
-Model layer (MVC). Owns the SQLite connection, schema, and all reads/writes.
-
-This is a deliberately "dumb" data layer now: there is no categorization
-logic living here anymore (CategorizationEngine / keyword_rules are gone).
-The Model only ever does one of two things with a tag name:
-  1. look it up and return the existing id, or
-  2. create it fresh, using a type the CALLER supplies.
-All "what category does this belong to" decisions happen in the parser
-(explicit #tag) or the Controller (Uncategorized fallback) — never here.
-"""
-
 import sqlite3
+import os
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -29,10 +16,6 @@ class FinanceModel:
     get_category_totals()                      -> total amount per category
     """
 
-    # Dates are stored exactly as typed (e.g. "8/4", "12/1") — no year, no
-    # zero-padding. Plain `ORDER BY date` would sort those as text
-    # ("12/1" before "8/4"), so this splits on '/' and casts month/day to
-    # INTEGER for a real chronological sort within a year.
     _CHRONOLOGICAL_ORDER = """
         CAST(substr(t.date, 1, instr(t.date, '/') - 1) AS INTEGER) ASC,
         CAST(substr(t.date, instr(t.date, '/') + 1) AS INTEGER) ASC,
@@ -41,11 +24,14 @@ class FinanceModel:
 
     def __init__(self, db_path: Path):
         self.db_path = db_path
+        db_dir = os.path.dirname(self.db_path)
+        if db_dir:
+            os.makedirs(db_dir, exist_ok=True)
 
     def _get_connection(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
         conn.execute("PRAGMA foreign_keys = ON;")
-        conn.row_factory = sqlite3.Row  # access columns by name: row["amount"]
+        conn.row_factory = sqlite3.Row
         return conn
 
     def init_db(self) -> None:
@@ -76,13 +62,19 @@ class FinanceModel:
                     description TEXT NOT NULL,
                     account_id  INTEGER NOT NULL,
                     category_id INTEGER NOT NULL,
+                    source_file TEXT NOT NULL, 
                     FOREIGN KEY (account_id)  REFERENCES accounts (id),
                     FOREIGN KEY (category_id) REFERENCES categories (id)
                 );
             """)
+            
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS scanned_files (
+                    filepath TEXT PRIMARY KEY,
+                    last_modified REAL
+                );
+            """)
 
-            # Guarantee both fallback buckets exist so an untagged
-            # transaction always has somewhere deterministic to land.
             cursor.execute(
                 "INSERT OR IGNORE INTO categories (name, type) VALUES (?, ?);",
                 ("Uncategorized Inflow", "inflow"),
@@ -92,11 +84,6 @@ class FinanceModel:
                 ("Uncategorized Outflow", "outflow"),
             )
             conn.commit()
-
-    # --- GET-OR-CREATE RESOLVERS --------------------------------------------
-    # These turn an explicit tag string from the parser into a database id.
-    # This is materialization, not categorization — the name is already
-    # decided; we're just making sure a row exists for it.
 
     def get_account_id(self, name: str) -> int:
         clean_name = name.strip()
@@ -159,15 +146,16 @@ class FinanceModel:
         description: str,
         account_id: int,
         category_id: int,
+        source_file: str, # NEW PARAMETER
     ) -> int:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                INSERT INTO transactions (date, amount, description, account_id, category_id)
-                VALUES (?, ?, ?, ?, ?);
+                INSERT INTO transactions (date, amount, description, account_id, category_id, source_file)
+                VALUES (?, ?, ?, ?, ?, ?);
                 """,
-                (date, amount, description, account_id, category_id),
+                (date, amount, description, account_id, category_id, source_file),
             )
             conn.commit()
             return cursor.lastrowid
@@ -210,3 +198,44 @@ class FinanceModel:
                 ORDER BY c.type ASC, c.name COLLATE NOCASE ASC;
             """)
             return [dict(row) for row in cursor.fetchall()]
+        
+    def needs_processing(self, filepath: str, current_mtime: float) -> bool:
+        """Queries SQLite to see if the file is new or has been modified."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT last_modified FROM scanned_files WHERE filepath = ?", 
+                (filepath,)
+            )
+            row = cursor.fetchone()
+            
+            if row is None or current_mtime > row["last_modified"]:
+                return True
+            return False
+
+    def mark_as_processed(self, filepath: str, current_mtime: float) -> None:
+        """Upserts the file tracking data into SQLite."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO scanned_files (filepath, last_modified) 
+                VALUES (?, ?)
+                ON CONFLICT(filepath) DO UPDATE SET last_modified = excluded.last_modified
+            """, (filepath, current_mtime))
+            conn.commit()
+
+    def get_recently_processed_files(self, limit: int = 5) -> List[str]:
+        """Retrieves the most recently modified files from the database."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT filepath FROM scanned_files 
+                ORDER BY last_modified DESC LIMIT ?
+            """, (limit,))
+            return [row["filepath"] for row in cursor.fetchall()]
+        
+    def delete_transactions_by_file(self, filepath: str) -> None:
+            """Wipes all existing transactions from a specific file before re-parsing."""
+            with self._get_connection() as conn:
+                conn.execute("DELETE FROM transactions WHERE source_file = ?", (filepath,))
+                conn.commit()

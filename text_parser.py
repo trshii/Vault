@@ -1,29 +1,3 @@
-"""
-text_parser.py
----------------
-Strict, single-transaction-per-line parser for the shorthand format:
-
-    <date> <sign> <amount> <description> [@account] [#category]
-
-Example:
-    8/4 - 150 gas for giorno+ @wallet #transport
-    8/4 + 25000 freelance payout @wallet #salary
-
-The parser is the ultimate gatekeeper for data integrity:
-
-  * @account is REQUIRED. A line with no account tag raises ParserError
-    rather than being guessed at — money has to go *somewhere*
-    identifiable, and there's no reasonable default account to fall
-    back to.
-  * #category is OPTIONAL. A line with no category tag still parses
-    successfully; `category` comes back as None and it's the
-    Controller's job to route it into the appropriate "Uncategorized"
-    bucket (see vault_controller.py).
-
-Parsing one line never blows up the whole batch — parse_batch() catches
-ParserError per-line and keeps going.
-"""
-
 import re
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
@@ -41,40 +15,26 @@ class ParserError(ValueError):
 @dataclass
 class ParsedTransaction:
     date: str
-    amount: float                  # already signed: negative for outflow
+    amount: float                 
     description: str
-    account: str                   # always present (parser enforces this)
-    category: Optional[str]        # None => caller must use an Uncategorized bucket
+    account: str                  
+    category: Optional[str]       
     raw_line: str
 
 
-# ---------------------------------------------------------------------------
-# Regex breakdown
-# ---------------------------------------------------------------------------
-# ^(?P<date>\S+)             -> date token, e.g. "8/4" (no internal spaces)
-# \s+(?P<sign>[+-])\s*       -> the sign. Space BEFORE it is required (it's
-#                               what separates it from the date); space
-#                               AFTER it is optional, so both "- 150" and
-#                               "-150" parse the same way.
-# (?P<amount>\d+(?:\.\d+)?)  -> the unsigned numeric amount
-# \s+(?P<rest>.+)$           -> everything else: description + any trailing
-#                               @account / #category tags, peeled off below.
 LINE_PATTERN = re.compile(
-    r'^(?P<date>\S+)\s+(?P<sign>[+-])\s*(?P<amount>\d+(?:\.\d+)?)\s+(?P<rest>.+)$'
+    r'^(?:(?P<date>\d{1,2}/\d{1,2})\s+)?(?P<sign>[+-])\s*(?P<amount>\d+(?:\.\d+)?)\s+(?P<rest>.+)$'
 )
 
-# Matches ONE trailing tag ("@word" or "#word") anchored to the end of the
-# string via `$`. Run in a loop (see below) so @account and #category can
-# appear in either order — each pass just strips whichever tag is last.
 TRAILING_TAG_PATTERN = re.compile(r'\s*([@#])(\S+)$')
 
 
-def parse_transaction_line(line: str) -> ParsedTransaction:
+def parse_transaction_line(line: str, fallback_date: str) -> ParsedTransaction:
     """
     Parses a single line into a ParsedTransaction.
 
     Raises ParserError if:
-      - the line doesn't match the '<date> <sign> <amount> <description>' shape
+      - the line doesn't match the '[date] <sign> <amount> <description>' shape
       - the description ends up empty after tags are peeled off
       - no @account tag is present
     """
@@ -88,10 +48,12 @@ def parse_transaction_line(line: str) -> ParsedTransaction:
     if not match:
         raise ParserError(
             raw_line,
-            "Doesn't match '<date> <sign> <amount> <description...>' format",
+            "Doesn't match '[date] <sign> <amount> <description...>' format",
         )
 
-    date = match.group("date").strip()
+    extracted_date = match.group("date")
+    date = extracted_date.strip() if extracted_date else fallback_date
+    
     sign = match.group("sign")
     amount = float(match.group("amount"))
     if sign == "-":
@@ -99,8 +61,6 @@ def parse_transaction_line(line: str) -> ParsedTransaction:
 
     remainder = match.group("rest").strip()
 
-    # Peel off up to two trailing tags (one @account, one #category, in
-    # either order). Whatever's left after that is the description.
     account: Optional[str] = None
     category: Optional[str] = None
 
@@ -119,7 +79,6 @@ def parse_transaction_line(line: str) -> ParsedTransaction:
     if not description:
         raise ParserError(raw_line, "Missing description")
 
-    # --- Strict gate: @account is mandatory, no silent fallback ---
     if account is None:
         raise ParserError(
             raw_line,
@@ -131,12 +90,12 @@ def parse_transaction_line(line: str) -> ParsedTransaction:
         amount=amount,
         description=description,
         account=account,
-        category=category,  # legitimately None if untagged
+        category=category,
         raw_line=raw_line,
     )
 
 
-def parse_batch(raw_text: str) -> Tuple[List[ParsedTransaction], List[ParserError]]:
+def parse_batch(raw_text: str, fallback_date: str) -> Tuple[List[ParsedTransaction], List[ParserError]]:
     """
     Parses a multi-line payload, one transaction per line. Each line is
     parsed independently — a malformed or under-tagged line is collected
@@ -153,7 +112,7 @@ def parse_batch(raw_text: str) -> Tuple[List[ParsedTransaction], List[ParserErro
         if not line:
             continue
         try:
-            successes.append(parse_transaction_line(line))
+            successes.append(parse_transaction_line(line, fallback_date))
         except ParserError as e:
             errors.append(e)
 

@@ -1,8 +1,0 @@
-{
-    "initialized_databases": {
-        "finance.db": true,
-        "finances.db": true,
-        "2.db": true,
-        "3.db": true
-    }
-}
