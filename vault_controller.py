@@ -27,16 +27,17 @@ class VaultController:
         # Isolate the filename from the full path
         filename = Path(source_file).name 
         
-        # Safely extract the date anywhere in the filename
+        # Safely extract the full date anywhere in the filename
         match = re.search(r'(\d{4})-(\d{2})-(\d{2})', filename)
         
         if match:
-            # Convert matched groups to ints to remove leading zeros (e.g., 08 -> 8)
-            file_date = f"{int(match.group(2))}/{int(match.group(3))}"
+            # Keep the year — used to be dropped here, which caused January
+            # entries to sort before November ones across a year boundary.
+            file_date = f"{match.group(1)}-{match.group(2)}-{match.group(3)}"
         else:
             from datetime import datetime
             now = datetime.now()
-            file_date = f"{now.month}/{now.day}"
+            file_date = f"{now.year}-{now.month:02d}-{now.day:02d}"
 
         parsed_items, parse_errors = parse_batch(raw_text, fallback_date=file_date)
 

@@ -16,11 +16,10 @@ class FinanceModel:
     get_category_totals()                      -> total amount per category
     """
 
-    _CHRONOLOGICAL_ORDER = """
-        CAST(substr(t.date, 1, instr(t.date, '/') - 1) AS INTEGER) ASC,
-        CAST(substr(t.date, instr(t.date, '/') + 1) AS INTEGER) ASC,
-        t.id ASC
-    """
+    # Dates are stored as zero-padded ISO strings ('YYYY-MM-DD'), so a plain
+    # lexicographic sort is already chronologically correct — no manual
+    # date-part parsing needed, and it sorts correctly across year boundaries.
+    _CHRONOLOGICAL_ORDER = "t.date ASC, t.id ASC"
 
     def __init__(self, db_path: Path):
         self.db_path = db_path

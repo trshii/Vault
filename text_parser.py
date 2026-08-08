@@ -33,6 +33,11 @@ def parse_transaction_line(line: str, fallback_date: str) -> ParsedTransaction:
     """
     Parses a single line into a ParsedTransaction.
 
+    fallback_date must be a zero-padded 'YYYY-MM-DD' string. It's used
+    verbatim when the line has no inline date, and as the source of the
+    year when the line's inline date only gives month/day (e.g. '8/4') —
+    inline dates never carry a year, so one has to come from somewhere.
+
     Raises ParserError if:
       - the line doesn't match the '[date] <sign> <amount> <description>' shape
       - the description ends up empty after tags are peeled off
@@ -52,7 +57,12 @@ def parse_transaction_line(line: str, fallback_date: str) -> ParsedTransaction:
         )
 
     extracted_date = match.group("date")
-    date = extracted_date.strip() if extracted_date else fallback_date
+    if extracted_date:
+        fallback_year = fallback_date.split("-")[0]
+        month_str, day_str = extracted_date.strip().split("/")
+        date = f"{fallback_year}-{int(month_str):02d}-{int(day_str):02d}"
+    else:
+        date = fallback_date
     
     sign = match.group("sign")
     amount = float(match.group("amount"))
@@ -100,6 +110,9 @@ def parse_batch(raw_text: str, fallback_date: str) -> Tuple[List[ParsedTransacti
     Parses a multi-line payload, one transaction per line. Each line is
     parsed independently — a malformed or under-tagged line is collected
     as an error and does NOT stop the rest of the batch from processing.
+
+    fallback_date must be a zero-padded 'YYYY-MM-DD' string (see
+    parse_transaction_line for how it's used).
 
     Returns (successfully_parsed, errors), in original line order within
     each list.

@@ -6,6 +6,17 @@ from typing import Any, Dict, List
 class VaultMarkdownView:
     def __init__(self, output_path: Path):
         self.output_path = output_path
+
+    @staticmethod
+    def _escape_cell(value: Any) -> str:
+        """Makes free-text safe to drop into a markdown table cell.
+
+        Without this, a description or tag containing a literal '|'
+        (e.g. '-50 lunch | groceries @wallet') silently breaks that row's
+        column alignment for the rest of the table.
+        """
+        text = "" if value is None else str(value)
+        return text.replace("|", "\\|").replace("\n", " ").replace("\r", " ")
         
     def _build_inflow_outflow_pie_chart(self, category_totals: List[Dict[str, Any]]) -> List[str]:
         """Generates an Obsidian chart code block for total inflow vs total outflow."""
@@ -37,7 +48,7 @@ class VaultMarkdownView:
         """Generates an Obsidian chart code block showing liquidity across accounts."""
         
         if not balances:
-            return "*No account data yet. Log a transaction to generate your charts!*"
+            return ["*No account data yet. Log a transaction to generate your charts!*", ""]
     
         labels = [row['account'].title() for row in balances]
         data = [str(row['balance']) for row in balances]
@@ -111,7 +122,8 @@ class VaultMarkdownView:
         lines.append("|---|---:|")
         total_balance = 0
         for row in balances:
-            lines.append(f"| {row['account'].title()} | {row['balance']:.2f} |")
+            account = self._escape_cell(row['account'].title())
+            lines.append(f"| {account} | {row['balance']:.2f} |")
             total_balance += row['balance']
         lines.append(f"| Total: | {total_balance:.2f} |")
         lines.append("")
@@ -120,16 +132,22 @@ class VaultMarkdownView:
         lines.append("| Category | Type | Total |")
         lines.append("|---|---|---:|")
         for row in category_totals:
-            lines.append(f"| {row['category'].title()} | {row['type'].title()} | {row['total']:.2f} |")
+            category = self._escape_cell(row['category'].title())
+            tx_type = self._escape_cell(row['type'].title())
+            lines.append(f"| {category} | {tx_type} | {row['total']:.2f} |")
         lines.append("")
 
         lines.append("## Transactions")
         lines.append("| Date | Amount | Type | Category | Account | Description |")
         lines.append("|---|---:|---|---|---|---|")
         for row in transactions:
+            tx_type = self._escape_cell(row['type'])
+            category = self._escape_cell(row['category'].title())
+            account = self._escape_cell(row['account'].title())
+            description = self._escape_cell(row['description'])
             lines.append(
-                f"| {row['date']} | {row['amount']:.2f} | {row['type']} | "
-                f"{row['category'].title()} | {row['account'].title()} | {row['description']} |"
+                f"| {row['date']} | {row['amount']:.2f} | {tx_type} | "
+                f"{category} | {account} | {description} |"
             )
         lines.append("")
         
