@@ -28,13 +28,13 @@ Every transaction must follow this basic structure:
 
 You can place these notes **anywhere** in your notes, Vault will find them.
 
-<img src="./images/preview1.png" alt="Project Screenshot">
+<img src="./v1.0/images/preview1.png" alt="Project Screenshot">
 
 With the click of a shortcut, Vault will update your local database, and display your information in a dashboard.
 
-<img src="./images/preview2.png" alt="Project Screenshot">
-<img src="./images/preview3.png" alt="Project Screenshot">
-<img src="./images/preview4.png" alt="Project Screenshot">
+<img src="./v1.0/images/preview2.png" alt="Project Screenshot">
+<img src="./v1.0/images/preview3.png" alt="Project Screenshot">
+<img src="./v1.0/images/preview4.png" alt="Project Screenshot">
 
 Editing and deleting entries are as simple as removing them from your notes, and updating the Vault again.
 
