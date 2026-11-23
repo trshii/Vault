@@ -82,6 +82,80 @@ class VaultMarkdownView:
             ""
         ]
         
+    def _build_category_breakdown_charts(self, category_totals: List[Dict[str, Any]]) -> List[str]:
+        """Generates two Obsidian pie charts: what categories make up
+        inflow, and what categories make up outflow.
+
+        This is a different view than _build_inflow_outflow_pie_chart, which
+        only shows a single two-slice pie (total inflow vs. total outflow).
+        This one shows the composition *within* each side.
+
+        A single shared-axis chart (e.g. one grouped bar chart) was tried
+        instead to sidestep Obsidian's side-by-side layout limitations, but
+        it has a real analytical downside: a small category (e.g. a $30
+        coffee run) becomes visually invisible next to a large one (e.g. a
+        $1000 paycheck) on a shared axis. Pies don't have that problem —
+        each pie's slices are proportional only to its own total, not to
+        the other chart's scale. The Charts plugin also has no logarithmic
+        axis option to work around this (see phibr0/obsidian-charts#57,
+        an open, unimplemented feature request), so pies are the better
+        fit for this data even though it costs the single-block simplicity.
+
+        LAYOUT NOTE: side-by-side placement was tried via both a raw HTML
+        flex wrapper and a CSS snippet targeting adjacent chart blocks;
+        neither reliably worked in Reading view or Live Preview, since each
+        rendered chart occupies its own block/line in the document flow
+        regardless of its own `display` property. These render as two
+        plain, ordinary, stacked chart blocks instead — guaranteed to
+        actually render, just not side by side.
+        """
+        # Two distinct color families instead of one shared palette — this
+        # matches the teal/red convention _build_inflow_outflow_pie_chart
+        # already uses, and prevents e.g. slice #1 of each pie coincidentally
+        # sharing the same color, which reads as "these are the same
+        # category" even though they're unrelated.
+        inflow_palette = ["#4bc0c0", "#36a2eb", "#2ecc71", "#1abc9c", "#3498db", "#16a085", "#27ae60"]
+        outflow_palette = ["#ff6384", "#ff9f40", "#e74c3c", "#e67e22", "#cc65fe", "#f39c12", "#d35400"]
+
+        def _pie_block(rows: List[Dict[str, Any]], title: str, palette: List[str]) -> str:
+            if not rows:
+                return f"*No {title.lower()} recorded yet.*"
+
+            labels = [row["category"].title() for row in rows]
+            data = [str(abs(row["total"])) for row in rows]
+            colors = [f"'{palette[i % len(palette)]}'" for i in range(len(rows))]
+
+            return "\n".join([
+                "```chart",
+                "type: pie",
+                f"labels: [{', '.join(labels)}]",
+                "series:",
+                f"  - title: {title}",
+                f"    data: [{', '.join(data)}]",
+                f"    backgroundColor: [{', '.join(colors)}]",
+                "    borderWidth: 0",
+                "    width: 100%",
+                "```",
+            ])
+
+        # Zero-total categories (e.g. an untouched Uncategorized bucket)
+        # would render as a useless slice, so they're filtered out.
+        inflow_rows = [r for r in category_totals if r["type"] == "inflow" and r["total"] != 0]
+        outflow_rows = [r for r in category_totals if r["type"] == "outflow" and r["total"] != 0]
+
+        if not inflow_rows and not outflow_rows:
+            return ["> [!warning] Category Breakdown: No category data found in SQLite.", ""]
+
+        inflow_block = _pie_block(inflow_rows, "Inflow by Category", inflow_palette)
+        outflow_block = _pie_block(outflow_rows, "Outflow by Category", outflow_palette)
+
+        return [
+            inflow_block,
+            "",
+            outflow_block,
+            "",
+        ]
+
     def _build_recent_files_section(self, recent_files: List[str]) -> List[str]:
         """Generates a markdown list of wikilinks for recently processed files."""
         if not recent_files:
@@ -115,6 +189,10 @@ class VaultMarkdownView:
         
         lines.append("## Financial Overview")
         lines.extend(self._build_inflow_outflow_pie_chart(category_totals))
+        lines.append("")
+
+        lines.append("## Category Breakdown")
+        lines.extend(self._build_category_breakdown_charts(category_totals))
         lines.append("")
 
         lines.append("## Account Balances")
